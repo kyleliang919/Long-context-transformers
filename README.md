@@ -1,5 +1,5 @@
 # Long-context-transformers
-Exploring finetuning public checkpoints on filter 8K sequences on Pile
+Exploring finetuning public checkpoints on filtered 8K sequences on Pile
 
 ## Exmple of running 8K pile on a filtered pile dataset
 ```bash
