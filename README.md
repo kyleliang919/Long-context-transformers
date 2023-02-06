@@ -11,4 +11,4 @@ Note that this self-contained script holds everything you need to run this finet
 Not much besides typical pytorch and transformers, the most likely issue will come from flash-attention, where you should follow exactly what the official [repo](https://github.com/HazyResearch/flash-attention.git), in better case, if you have the choice to use the [docker](https://github.com/HazyResearch/flash-attention/blob/main/training/Dockerfile) provided, it will save you from many headaches.
 
 ## To do:
-* enable multiple GPUs
+* enable multiple GPUs and model parallel
