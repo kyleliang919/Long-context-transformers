@@ -108,7 +108,6 @@ def main():
                     1, 1, max_positions, max_positions
                 )
         each.attention = FlashAttentionWrapper(each.attention, max_seqlen = max_positions)
-    model = model.cuda()
 
     def merge_questions_and_answers(examples):
         out = tokenizer([question + " " + answer for question, answer in zip(examples["input"], examples["output"])])
