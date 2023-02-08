@@ -103,7 +103,7 @@ def main():
     tokenizer.model_max_length = max_positions
     for each in model.gpt_neox.layers:
         original_emb = each.attention.rotary_emb
-        each.attention.rotary_emb = RotaryEmbedding(each.attention.rotary_ndims,max_positions,10000).cuda()
+        each.attention.rotary_emb = RotaryEmbedding(each.attention.rotary_ndims,max_positions,10000)
         each.attention.bias = torch.tril(torch.ones((max_positions, max_positions), dtype=torch.uint8)).view(
                     1, 1, max_positions, max_positions
                 )
