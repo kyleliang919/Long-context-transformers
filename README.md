@@ -13,6 +13,7 @@ Note that this self-contained script holds everything you need to run this finet
 ```bash
 HF_MODULES_CACHE=./cache/ HF_DATASETS_CACHE=./cache/ TRANSFORMERS_CACHE=./cache/ deepspeed --num_gpus=8 finetune.py --per_device_train_batch_size 1 --per_device_eval_batch_size 1 --output_dir pythia-6.7b --gradient_accumulation_steps 8 --fp16 --evaluation_strategy "epoch" --max_steps 100000 --deepspeed ds_config.json
 ```
+If you hit "RuntimeError: Tensors must be contiguous" , follow this simple [fix](https://github.com/amyeroberts/transformers/commit/4ea536b45a3fd20ff808a0c236899a66e24bf7fe) and modify your deepSpeed library
 
 ## Dependencies
 Not much besides typical pytorch and transformers, the most likely issue will come from flash-attention, where you should follow exactly what the official [repo](https://github.com/HazyResearch/flash-attention.git), in better case, if you have the choice to use the [docker](https://github.com/HazyResearch/flash-attention/blob/main/training/Dockerfile) provided, it will save you from many headaches.
