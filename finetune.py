@@ -2,10 +2,12 @@ import torch
 import numpy as np
 import evaluate
 from datasets import load_dataset
-from transformers import GPTNeoXForCausalLM, GPTNeoXTokenizerFast
-from transformers.models.gpt_neox.modeling_gpt_neox import RotaryEmbedding, GPTNeoXAttention, apply_rotary_pos_emb
-from dataclasses import dataclass, field
+from transformers import GPTNeoXForCausalLM
+from transformers.models.gpt_neox.modeling_gpt_neox import RotaryEmbedding, apply_rotary_pos_emb
+from transformers.trainer_utils import get_last_checkpoint
 from itertools import chain
+from typing import Optional
+from dataclasses import dataclass, field
 from transformers import (
     AutoTokenizer,
     HfArgumentParser,
@@ -16,6 +18,40 @@ from transformers import (
 )
 
 from flash_attn.modules.mha import FlashSelfAttention
+
+@dataclass
+class ModelArguments:
+    """
+    Arguments pertaining to which model/config/tokenizer we are going to fine-tune, or train from scratch.
+    """
+
+    model_name_or_path: Optional[str] = field(
+        default="pythia-1.3b",
+        metadata={
+            "help": (
+                "The model checkpoint for weights initialization. Don't set if you want to train a model from scratch."
+            )
+        },
+    )
+
+    max_positions: Optional[int] = field(
+        default=8192,
+        metadata={
+            "help": (
+                "The maximun sequence length of the model."
+            )
+        },
+    )
+
+@dataclass
+class DataTrainingArguments:
+    """
+    Arguments pertaining to what data we are going to input our model for training and eval.
+    """
+
+    dataset_name: Optional[str] = field(
+        default="pile", metadata={"help": "The name of the dataset to use (via the datasets library)."}
+    )
 
 class FlashAttentionWrapper(torch.nn.Module):
     def __init__(self, attention, max_seqlen = 8192):
@@ -92,14 +128,14 @@ class FlashAttentionWrapper(torch.nn.Module):
         return outputs
 
 def main():
-    parser = HfArgumentParser((TrainingArguments))
-    #training_args = TrainingArguments(output_dir="pythia-6.7b", evaluation_strategy="epoch")
-    training_args = parser.parse_args_into_dataclasses()[0]
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    last_checkpoint = get_last_checkpoint(training_args.output_dir)
     set_seed(training_args.seed)
-    model = GPTNeoXForCausalLM.from_pretrained("EleutherAI/pythia-1.3b")
-    tokenizer = AutoTokenizer.from_pretrained("EleutherAI/pythia-1.3b")
+    model = GPTNeoXForCausalLM.from_pretrained(model_args.model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
     tokenizer.pad_token = tokenizer.mask_token
-    max_positions = 8192
+    max_positions = model_args.max_positions
     tokenizer.model_max_length = max_positions
     for each in model.gpt_neox.layers:
         original_emb = each.attention.rotary_emb
@@ -108,6 +144,10 @@ def main():
                     1, 1, max_positions, max_positions
                 )
         each.attention = FlashAttentionWrapper(each.attention, max_seqlen = max_positions)
+
+    # patching for the random contiguous tensors bug
+    for p in model.parameters():
+        p = p.contiguous()
 
     def merge_questions_and_answers(examples):
         out = tokenizer([question + " " + answer for question, answer in zip(examples["input"], examples["output"])])
@@ -130,41 +170,45 @@ def main():
         result["labels"] = result["input_ids"].copy()
         return result
     
-    # if you want to try scroll use this:
-    #datasets = load_dataset("tau/scrolls", "qasper")
-    #datasets.pop("test")
-    #tokenized_datasets = datasets.map(
-    #    merge_questions_and_answers,
-    #    batched=True,
-    #    num_proc = 1,
-    #    remove_columns = datasets["train"].column_names,
-    #    desc="Running tokenizer on dataset",
-    #)
 
-    #lm_datasets = tokenized_datasets.map(
-    #    group_texts,
-    #    batched=True,
-    #    num_proc=1,
-    #    desc=f"Grouping texts in chunks of {block_size}",
-    #)
+    if data_args.dataset_name == "pile":
+        base_url = "https://the-eye.eu/public/AI/pile/"
+        data_files = {
+            "train": [base_url + "train/"+ f"{idx:02d}.jsonl.zst" for idx in range(30)],
+            "validation": base_url + "val.jsonl.zst",
+            "test": base_url + "test.jsonl.zst",
+        }
+        datasets = load_dataset("json", data_files=data_files, streaming=True)
+        datasets = datasets.filter(lambda x: len(x["text"])>=max_positions)
+        tokenized_datasets = datasets.map(
+            lambda examples: tokenizer(examples["text"]),
+            batched=True,
+        )
+        lm_datasets = tokenized_datasets.map(
+            group_texts,
+            batched=True,
+        )
+        lm_datasets = lm_datasets.filter(lambda x: len(x["input_ids"])>=max_positions)
+    elif data_args.dataset_name == "qasper":
+        datasets = load_dataset("tau/scrolls", "qasper")
+        datasets.pop("test")
+        tokenized_datasets = datasets.map(
+           merge_questions_and_answers,
+           batched=True,
+           num_proc = 1,
+           remove_columns = datasets["train"].column_names,
+           desc="Running tokenizer on dataset",
+        )
 
-    base_url = "https://the-eye.eu/public/AI/pile/"
-    data_files = {
-        "train": [base_url + "train/"+ f"{idx:02d}.jsonl.zst" for idx in range(30)],
-        "validation": base_url + "val.jsonl.zst",
-        "test": base_url + "test.jsonl.zst",
-    }
-    datasets = load_dataset("json", data_files=data_files, streaming=True)
-    datasets = datasets.filter(lambda x: len(x["text"])>=max_positions)
-    tokenized_datasets = datasets.map(
-        lambda examples: tokenizer(examples["text"]),
-        batched=True,
-    )
-    lm_datasets = tokenized_datasets.map(
-        group_texts,
-        batched=True,
-    )
-    lm_datasets = lm_datasets.filter(lambda x: len(x["input_ids"])>=max_positions)
+        lm_datasets = tokenized_datasets.map(
+           group_texts,
+           batched=True,
+           num_proc=1,
+           desc=f"Grouping texts in chunks of {block_size}",
+        )
+    else:
+        raise Exception("Sorry, please the dataset specified can not be recognized")
+    
     def preprocess_logits_for_metrics(logits, labels):
         if isinstance(logits, tuple):
             # Depending on the model and config, logits may contain extra tensors,
@@ -182,6 +226,7 @@ def main():
 
     train_dataset = lm_datasets["train"]
     eval_dataset = lm_datasets["validation"]
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -193,7 +238,13 @@ def main():
         preprocess_logits_for_metrics=preprocess_logits_for_metrics
     )
 
-    train_result = trainer.train()
+    if training_args.resume_from_checkpoint is not None:
+        checkpoint = training_args.resume_from_checkpoint
+    elif last_checkpoint is not None:
+        checkpoint = last_checkpoint
+    else:
+        checkpoint = None
+    train_result = trainer.train(resume_from_checkpoint=checkpoint)
     trainer.save_model()  # Saves the tokenizer too for easy upload
 
     metrics = train_result.metrics
