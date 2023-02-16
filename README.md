@@ -15,7 +15,7 @@ HF_MODULES_CACHE=./cache/ HF_DATASETS_CACHE=./cache/ TRANSFORMERS_CACHE=./cache/
 ```
 If you hit "RuntimeError: Tensors must be contiguous" , follow this simple [fix](https://github.com/amyeroberts/transformers/commit/4ea536b45a3fd20ff808a0c236899a66e24bf7fe) and modify your deepSpeed library
 
-### Multiple GPUs and Multiple Nodes with DeepSpeed
+### Multiple GPUs and Multiple Nodes with DeepSpeed with Slurm
 ```bash
 sbatch slurm.sh
 ```
