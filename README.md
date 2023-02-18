@@ -19,7 +19,7 @@ If you hit "RuntimeError: Tensors must be contiguous" , follow this simple [fix]
 ```bash
 sbatch slurm.sh
 ```
-Note that you can launch up to pythia-20B with 16 80GB A100s, aka two nodes. Since the above slurm script relies on openmpi, you should be able to generalize it to mroe than 2 nodes without problems.
+Note that you can launch up to pythia-20B with 16 80GB A100s, aka two nodes. Since the above slurm script relies on openmpi, you should be able to generalize it to more than 2 nodes without problems.
 
 ## Dependencies
 Not much besides typical pytorch and transformers, the most likely issue will come from flash-attention, where you should follow exactly what the official [repo](https://github.com/HazyResearch/flash-attention.git), in better case, if you have the choice to use the [docker](https://github.com/HazyResearch/flash-attention/blob/main/training/Dockerfile) provided, it will save you from many headaches.
