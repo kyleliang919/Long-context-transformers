@@ -25,4 +25,10 @@ Note that you can launch up to pythia-20B with 16 80GB A100s, aka two nodes. Sin
 Not much besides typical pytorch and transformers, the most likely issue will come from flash-attention, where you should follow exactly what the official [repo](https://github.com/HazyResearch/flash-attention.git), in better case, if you have the choice to use the [docker](https://github.com/HazyResearch/flash-attention/blob/main/training/Dockerfile) provided, it will save you from many headaches.
 
 ## To do:
-* enable multiple GPUs and model parallel
+- [x] enable multiple GPUs and model parallel
+
+## Citation
+You can find the citation option under the wedge in the repo. Beyond that please make sure to cite the amazing work by the incredible [Tri Dao](https://tridao.me/). Without his flash-attention this repo will not be possible.
+```
+Dao, Tri, et al. "Flashattention: Fast and memory-efficient exact attention with io-awareness." arXiv preprint arXiv:2205.14135 (2022).
+```
