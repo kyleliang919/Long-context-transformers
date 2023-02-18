@@ -1,9 +1,9 @@
-cff-version: 1.2.0
-message: "If you need to cite this repo, here it's"
+cff-version: 1.1.0
+message: "If you use this software, please cite it as below."
 authors:
   - family-names: Liang
     given-names: Kaizhao
     orcid: https://orcid.org/0000-0002-0055-8659
-title: "Long Context Transformer"
-version: 0.0.1
-date-released: 2023-02-17
+title: kyleliang919/Long-context-transformers: v0.0.1
+version: v0.0.1
+date-released: 2023-02-18
