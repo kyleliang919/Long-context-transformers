@@ -22,8 +22,8 @@ sbatch slurm.sh
 Note that you can launch up to pythia-20B with 16 80GB A100s, aka two nodes. Since the above slurm script relies on openmpi, you should be able to generalize it to more than 2 nodes without problems.
 
 ### Warnings
-*For OPT, it auto pads 2 in the end, so the max position should be subtracted by 2 (e.g instead of 8192, you will have to put 8190)
-*For Bloom, to support Alibi, we had to compute pesudoinverse, its backward is unfriendly to gradient checkpointing, if you see backward precision issue, try to disable gradient checkpointing.
+* For OPT, it auto pads 2 in the end, so the max position should be subtracted by 2 (e.g instead of 8192, you will have to put 8190)
+* For Bloom, to support Alibi, we had to compute pesudoinverse, its backward is unfriendly to gradient checkpointing, if you see backward precision issue, try to disable gradient checkpointing.
 
 ## Dependencies
 Not much besides typical pytorch and transformers, the most likely issue will come from flash-attention, where you should follow exactly what the official [repo](https://github.com/HazyResearch/flash-attention.git), in better case, if you have the choice to use the [docker](https://github.com/HazyResearch/flash-attention/blob/main/training/Dockerfile) provided, it will save you from many headaches.
