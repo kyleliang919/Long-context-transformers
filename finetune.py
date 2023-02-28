@@ -1,9 +1,9 @@
 import torch
-import numpy as np
 import evaluate
 from datasets import load_dataset
-from transformers import GPTNeoXForCausalLM
-from transformers.models.gpt_neox.modeling_gpt_neox import RotaryEmbedding, apply_rotary_pos_emb
+from transformers import GPTNeoXForCausalLM, BloomForCausalLM, OPTForCausalLM
+from transformers.models.gpt_neox.modeling_gpt_neox import RotaryEmbedding
+from transformers.models.opt.modeling_opt import OPTLearnedPositionalEmbedding
 from transformers.trainer_utils import get_last_checkpoint
 from itertools import chain
 from typing import Optional
@@ -17,7 +17,7 @@ from transformers import (
     set_seed,
 )
 
-from flash_attn.modules.mha import FlashSelfAttention
+from flash_attn_wrappers import FlashAttentionWrapper, FlashAttentionWrapperWithRotary, FlashAttentionWrapperWithAlibi
 
 @dataclass
 class ModelArguments:
@@ -26,7 +26,7 @@ class ModelArguments:
     """
 
     model_name_or_path: Optional[str] = field(
-        default="pythia-1.3b",
+        default="pythia-1.4b",
         metadata={
             "help": (
                 "The model checkpoint for weights initialization. Don't set if you want to train a model from scratch."
@@ -53,97 +53,40 @@ class DataTrainingArguments:
         default="pile", metadata={"help": "The name of the dataset to use (via the datasets library)."}
     )
 
-class FlashAttentionWrapper(torch.nn.Module):
-    def __init__(self, attention, max_seqlen = 8192):
-        super().__init__()
-        self.attention = attention
-        self.max_seqlen = max_seqlen
-        self.flash_self_attention = FlashSelfAttention(causal = True)
-        self.dropout_p = 0.0
-
-    def forward(self,
-        hidden_states,
-        attention_mask,
-        head_mask=None,
-        layer_past=None,
-        use_cache=False,
-        output_attentions=False):
-        has_layer_past = layer_past is not None
-
-        # Compute QKV
-        # Attention heads [batch, seq_len, hidden_size]
-        #   --> [batch, seq_len, (np * 3 * head_size)]
-        qkv = self.attention.query_key_value(hidden_states)
-
-        # [batch, seq_len, (num_heads * 3 * head_size)]
-        #   --> [batch, seq_len, num_heads, 3 * head_size]
-        new_qkv_shape = qkv.size()[:-1] + (self.attention.num_attention_heads, 3 * self.attention.head_size)
-        qkv = qkv.view(*new_qkv_shape)
-        
-        # [batch, seq_len, num_attention_heads, 3 * head_size] --> 3 [batch, num_attention_heads, seq_len, head_size]
-        query = qkv[..., : self.attention.head_size].permute(0, 2, 1, 3)
-        key = qkv[..., self.attention.head_size : 2 * self.attention.head_size].permute(0, 2, 1, 3)
-        value = qkv[..., 2 * self.attention.head_size :].permute(0, 2, 1, 3)
-
-        # Compute rotary embeddings on rotary_ndims
-        query_rot = query[..., : self.attention.rotary_ndims]
-        query_pass = query[..., self.attention.rotary_ndims :]
-        key_rot = key[..., : self.attention.rotary_ndims]
-        key_pass = key[..., self.attention.rotary_ndims :]
-
-        # Compute token offset for rotary embeddings (when decoding)
-        seq_len = key.shape[-2]
-        offset = 0
-        if has_layer_past:
-            offset = layer_past[0].shape[-2]
-            seq_len += offset
-        cos, sin = self.attention.rotary_emb(value, seq_len=seq_len)
-        query, key = apply_rotary_pos_emb(query_rot, key_rot, cos, sin, offset=offset)
-        query = torch.cat((query, query_pass), dim=-1)
-        key = torch.cat((key, key_pass), dim=-1)
-
-        # Cache QKV values
-        if has_layer_past:
-            past_key = layer_past[0]
-            past_value = layer_past[1]
-            key = torch.cat((past_key, key), dim=-2)
-            value = torch.cat((past_value, value), dim=-2)
-        present = (key, value) if use_cache else None
-
-        # Compute attention
-        #attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask)
-
-        qkv = torch.concat([query.unsqueeze(2), key.unsqueeze(2), value.unsqueeze(2)], dim = 2).permute(0, 3, 2, 1, 4).half()
-        attn_output = self.flash_self_attention(qkv)
-        attn_weights = None
-
-        # Reshape outputs
-        attn_output = attn_output.view(attn_output.size(0), attn_output.size(1), self.attention.num_attention_heads * self.attention.head_size)
-        attn_output = self.attention.dense(attn_output)
-        
-        outputs = (attn_output, present)
-        if output_attentions:
-            outputs += (attn_weights,)
-
-        return outputs
-
 def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     last_checkpoint = get_last_checkpoint(training_args.output_dir)
     set_seed(training_args.seed)
-    model = GPTNeoXForCausalLM.from_pretrained(model_args.model_name_or_path)
     tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
     tokenizer.pad_token = tokenizer.mask_token
     max_positions = model_args.max_positions
     tokenizer.model_max_length = max_positions
-    for each in model.gpt_neox.layers:
-        original_emb = each.attention.rotary_emb
-        each.attention.rotary_emb = RotaryEmbedding(each.attention.rotary_ndims,max_positions,10000)
-        each.attention.bias = torch.tril(torch.ones((max_positions, max_positions), dtype=torch.uint8)).view(
-                    1, 1, max_positions, max_positions
-                )
-        each.attention = FlashAttentionWrapper(each.attention, max_seqlen = max_positions)
+    
+    if "pythia" in model_args.model_name_or_path or "gpt-neox" in model_args.model_name_or_path:
+        model = GPTNeoXForCausalLM.from_pretrained(model_args.model_name_or_path)
+        for each in model.gpt_neox.layers:
+            each.attention.rotary_emb = RotaryEmbedding(each.attention.rotary_ndims,max_positions,10000)
+            each.attention.bias = torch.tril(torch.ones((max_positions, max_positions), dtype=torch.uint8)).view(
+                        1, 1, max_positions, max_positions
+                    )
+            each.attention = FlashAttentionWrapperWithRotary(each.attention, max_seqlen = max_positions)
+    elif "bloom" in model_args.model_name_or_path:
+        model = BloomForCausalLM.from_pretrained(model_args.model_name_or_path)
+        for each in model.transformer.h:
+            each.self_attention = FlashAttentionWrapperWithAlibi(each.self_attention, max_seqlen = max_positions)
+    elif "opt" in model_args.model_name_or_path:
+        model = OPTForCausalLM.from_pretrained(model_args.model_name_or_path)
+        for each in model.model.decoder.layers:
+            each.self_attn = FlashAttentionWrapper(each.self_attn, max_seqlen = max_positions)
+        original_num_embeddings = model.model.decoder.embed_positions.num_embeddings - 2
+        assert (max_positions + 2) % original_num_embeddings == 0
+        original_embed_positions = model.model.decoder.embed_positions.weight.data
+        duplicated_embed_positions =  torch.cat([original_embed_positions[:-2] * i for i in range(1, (max_positions + 2) // original_num_embeddings + 1)] +  [original_embed_positions[-2:]], dim = 0)
+        model.model.decoder.embed_positions = OPTLearnedPositionalEmbedding((max_positions + 2), model.model.decoder.embed_positions.embedding_dim)
+        model.model.decoder.embed_positions.weight.data = duplicated_embed_positions
+    else:
+        raise NotImplementedError
 
     # patching for the random contiguous tensors bug
     for p in model.parameters():
