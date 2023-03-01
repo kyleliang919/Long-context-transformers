@@ -30,7 +30,8 @@ Not much besides typical pytorch and transformers, the most likely issue will co
 
 ## To do:
 - [x] enable multiple GPUs and model parallel
-- [x] supporting alibi (Bloom) and normal trainable embedding (OPT) 
+- [x] supporting alibi (Bloom) and normal trainable embedding (OPT)
+- [ ] Instruction tuning on long context benchmarks such as [Scroll](https://www.scrolls-benchmark.com/)
 
 ## Citation
 You can find the citation option under the wedge in the repo. Beyond that please make sure to cite the amazing work by the incredible [Tri Dao](https://tridao.me/). Without his flash-attention this repo will not be possible.
