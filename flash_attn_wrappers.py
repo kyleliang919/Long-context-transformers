@@ -197,7 +197,7 @@ class FlashAttentionWrapperWithAlibi(torch.nn.Module):
         reshaped_query_layer = query_layer.reshape(batch_size, self.attention.num_heads, query_layer.shape[1], query_layer.shape[2]).permute(0, 2, 1, 3)
         reshaped_key_layer = key_layer.reshape(batch_size, self.attention.num_heads, key_layer.shape[1], key_layer.shape[2]).permute(0, 3, 1, 2)
         reshaped_value_layer = value_layer.reshape(batch_size, self.attention.num_heads, value_layer.shape[1], value_layer.shape[2]).permute(0, 2, 1, 3)
-        offset_key_layer = self.attention.inv_norm_factor * reshaped_key_layer + self.attention.beta * (torch.linalg.pinv(reshaped_query_layer.permute(0,2,1,3).float()).half() * alibi.unsqueeze(0)).permute(0, 3, 1, 2).half()
+        offset_key_layer = self.attention.inv_norm_factor * reshaped_key_layer + self.attention.beta * (torch.linalg.pinv(reshaped_query_layer.permute(0,2,1,3).float()) * alibi.view(batch_size, alibi.shape[0]//batch_size, alibi.shape[1], alibi.shape[2])).permute(0, 3, 1, 2).half()
         qkv = torch.concat([reshaped_query_layer.unsqueeze(2), offset_key_layer.unsqueeze(2), reshaped_value_layer.unsqueeze(2)], dim = 2).half()
         context_layer = self.flash_self_attention(qkv)
         context_layer = torch.flatten(context_layer, start_dim = 2)
