@@ -3,4 +3,4 @@ transformers
 deepspeed
 evaluate
 accelerate
-sckit-learn
+scikit-learn
