@@ -4,3 +4,4 @@ deepspeed
 evaluate
 accelerate
 scikit-learn
+flash-attn
