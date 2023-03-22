@@ -1,1 +1,6 @@
 transformers
+transformers
+deepspeed
+evaluate
+accelerate
+sckit-learn
